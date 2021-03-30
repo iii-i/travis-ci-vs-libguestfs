@@ -1,9 +1,6 @@
 #!/bin/sh
 set -e -u -x
 
-# file system
-find / -type f
-
 # libguestfs - verbose
 export LIBGUESTFS_DEBUG=1 LIBGUESTFS_TRACE=1
 

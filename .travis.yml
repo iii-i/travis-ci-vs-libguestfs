@@ -5,6 +5,7 @@ dist: bionic
 addons:
     apt:
         packages:
+            - linux-image-generic
             - libguestfs-tools
 
 jobs:
