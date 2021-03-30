@@ -1,6 +1,6 @@
 sudo: required
 language: bash
-dist: bionic
+dist: focal
 
 addons:
     apt:
@@ -10,12 +10,7 @@ addons:
 
 jobs:
     include:
-        - stage: travis-ci-vs-libguestfs 
-          name: x86_64
-          language: bash
-          script: ./go
-
-        - name: s390x
+        - stage: travis-ci-vs-libguestfs
           arch: s390x
           language: bash
           script: ./go
