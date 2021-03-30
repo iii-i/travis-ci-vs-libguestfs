@@ -9,12 +9,12 @@ addons:
 
 jobs:
     include:
-        - stage: Builds & Tests
-          name: Kernel LATEST + selftests
+        - stage: travis-ci-vs-libguestfs 
+          name: x86_64
           language: bash
           script: ./go
 
-        - name: Kernel LATEST + selftests (s390x)
+        - name: s390x
           arch: s390x
           language: bash
           script: ./go
