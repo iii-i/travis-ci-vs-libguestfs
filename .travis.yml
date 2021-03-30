@@ -1,0 +1,20 @@
+sudo: required
+language: bash
+dist: bionic
+
+addons:
+    apt:
+        packages:
+            - libguestfs-tools
+
+jobs:
+    include:
+        - stage: Builds & Tests
+          name: Kernel LATEST + selftests
+          language: bash
+          script: ./go
+
+        - name: Kernel LATEST + selftests (s390x)
+          arch: s390x
+          language: bash
+          script: ./go
