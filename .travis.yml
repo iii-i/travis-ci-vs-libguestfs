@@ -7,7 +7,7 @@ addons:
         packages:
             - linux-image-generic
             - libguestfs-tools
-            - qemu-user-static
+            - qemu-kvm
 
 jobs:
     include:
