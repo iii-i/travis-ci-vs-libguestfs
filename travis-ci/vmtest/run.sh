@@ -1,6 +1,6 @@
 #!/bin/bash
 
-set -uo pipefail
+set -uxo pipefail
 trap 'exit 2' ERR
 
 source $(cd $(dirname $0) && pwd)/helpers.sh
@@ -15,7 +15,7 @@ Run "${PROJECT_NAME}" tests in a virtual machine.
 This exits with status 0 on success, 1 if the virtual machine ran successfully
 but tests failed, and 2 if we encountered a fatal error.
 
-This script uses sudo to mount and modify the disk image.
+This script uses sudo to work around a libguestfs bug.
 
 Arguments:
   IMG                 path of virtual machine disk image to create
@@ -246,6 +246,21 @@ download_rootfs() {
 		zstd -d
 }
 
+tar_in() {
+	local dst_path="$1"
+	# guestfish --remote does not forward file descriptors, which prevents
+	# us from using `tar-in -` or bash process substitution. We don't want
+	# to copy all the data into a temporary file, so use a FIFO.
+	tmp=$(mktemp -d)
+	mkfifo "$tmp/fifo"
+	cat >"$tmp/fifo" &
+	local cat_pid=$!
+	guestfish --remote tar-in "$tmp/fifo" "$dst_path"
+	wait "$cat_pid"
+	rm -r "$tmp"
+	tmp=
+}
+
 if (( LIST )); then
 	cache_urls
 	matching_kernel_releases "$KERNELRELEASE"
@@ -315,16 +330,15 @@ fi
 # order to avoid the startup overhead.
 # Work around https://bugs.launchpad.net/fuel/+bug/1467579.
 sudo chmod +r /boot/vmlinuz*
-export LIBGUESTFS_DEBUG=1 LIBGUESTFS_TRACE=1
 eval "$(guestfish --listen)"
 if (( ONESHOT )); then
 	rm -f "$IMG"
 	create_rootfs_img "$IMG"
-	download_rootfs "$ROOTFSVERSION" | guestfish --remote \
+	guestfish --remote \
 		add "$IMG" label:img : \
 		launch : \
-		mount /dev/disk/guestfs/img / : \
-		tar-in - /
+		mount /dev/disk/guestfs/img /
+	download_rootfs "$ROOTFSVERSION" | tar_in /
 else
 	if (( ! SKIPIMG )); then
 		rootfs_img="${ARCH_DIR}/${PROJECT_NAME}-vmtest-rootfs-${ROOTFSVERSION}.img"
@@ -335,13 +349,11 @@ else
 			truncate -s 2G "$tmp"
 			mkfs.ext4 -q "$tmp"
 
-			# guestfish does not support hot removal, so work with
-			# the temporary disk image in a separate session.
-			download_rootfs "$ROOTFSVERSION" | guestfish \
-				add "$tmp" : \
-				launch : \
-				mount /dev/sda / : \
-				tar-in - /
+			# libguestfs supports hotplugging only with a libvirt
+			# backend, which we are not using here, so handle the
+			# temporary image in a separate session.
+			download_rootfs "$ROOTFSVERSION" |
+				guestfish -a "$tmp" tar-in - /
 
 			mv "$tmp" "$rootfs_img"
 			tmp=
@@ -371,8 +383,6 @@ if [[ -v BUILDDIR || $ONESHOT -eq 0 ]]; then
 		fi
 	fi
 else
-	# We could use "sudo zstd -o", but let's not run zstd as root with
-	# input from the internet.
 	source_vmlinux="${ARCH_DIR}/vmlinux-${KERNELRELEASE}"
 	download "vmlinux-${KERNELRELEASE}.zst" | zstd -d >"$source_vmlinux"
 fi
@@ -395,27 +405,19 @@ if (( SKIPSOURCE )); then
 else
 	echo "Copying source files..." >&2
 
-	# Copy the source files in. guestfish --remote does not forward file
-	# descriptors, which prevents us from using `tar-in -` or bash process
-	# substitution. We don't want to copy all the sources into a temporary
-	# file, so simply use a FIFO.
-	tmp=$(mktemp -d)
-	mkfifo "$tmp/fifo"
+	# Copy the source files in.
+	guestfish --remote \
+		mkdir-p "/${PROJECT_NAME}" : \
+		chmod 0755 "/${PROJECT_NAME}"
 	{
 	if [[ -e .git ]]; then
 		git ls-files -z
 	else
 		tr '\n' '\0' < "${PROJECT_NAME}.egg-info/SOURCES.txt"
 	fi
-	} | tar --null --files-from=- -c >"$tmp/fifo" &
-	tar_pid=$!
-	guestfish --remote \
-		mkdir-p "/${PROJECT_NAME}" : \
-		chmod 0755 "/${PROJECT_NAME}" : \
-		tar-in "$tmp/fifo" "/${PROJECT_NAME}"
-	wait "$tar_pid"
-	rm -r "$tmp"
-	tmp=
+	} |
+		tar --null --files-from=- -c |
+		tar_in "/${PROJECT_NAME}"
 fi
 
 tmp=$(mktemp)
@@ -464,15 +466,18 @@ guestfish --remote \
 rm "$tmp"
 tmp=
 
-# Terminate the persistent guestfish session in order to avoid conflicts with
-# qemu.
 guestfish --remote exit
 
 echo "Starting VM with $(nproc) CPUs..."
 
+if [ ! -e /dev/kvm ]; then
+	sudo mknod -m 666 /dev/kvm c 10 232 || true
+	sudo chown root:kvm /dev/kvm || true
+fi
+
 case "$ARCH" in
 s390x)
-	qemu=qemu-system-s390x
+	qemu="qemu-system-s390x"
 	console="ttyS1"
 	qemu_flags=(-smp 2)
 	;;
@@ -487,11 +492,11 @@ x86_64)
 	;;
 esac
 "$qemu" -nodefaults -display none -serial mon:stdio \
-	"${qemu_flags[@]}" -enable-kvm -m 4G \
+	"${qemu_flags[@]}" -accel kvm:tcg -m 4G \
 	-drive file="$IMG",format=raw,index=1,media=disk,if=virtio,cache=none \
 	-kernel "$vmlinuz" -append "root=/dev/vda rw console=$console$APPEND"
 
-if exitstatus="$(guestfish -a "$IMG" cat /exitstatus 2>/dev/null)"; then
+if exitstatus="$(guestfish --ro -a "$IMG" -i cat /exitstatus 2>/dev/null)"; then
 	printf '\nTests exit status: %s\n' "$exitstatus" >&2
 else
 	printf '\nCould not read tests exit status\n' >&2
