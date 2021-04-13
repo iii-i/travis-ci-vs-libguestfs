@@ -470,11 +470,6 @@ guestfish --remote exit
 
 echo "Starting VM with $(nproc) CPUs..."
 
-if [ ! -e /dev/kvm ]; then
-	sudo mknod -m 666 /dev/kvm c 10 232 || true
-	sudo chown root:kvm /dev/kvm || true
-fi
-
 case "$ARCH" in
 s390x)
 	qemu="qemu-system-s390x"
@@ -492,7 +487,7 @@ x86_64)
 	;;
 esac
 "$qemu" -nodefaults -display none -serial mon:stdio \
-	"${qemu_flags[@]}" -accel kvm:tcg -m 4G \
+	"${qemu_flags[@]}" -M accel=kvm:tcg -m 4G \
 	-drive file="$IMG",format=raw,index=1,media=disk,if=virtio,cache=none \
 	-kernel "$vmlinuz" -append "root=/dev/vda rw console=$console$APPEND"
 
