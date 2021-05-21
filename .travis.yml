@@ -1,47 +1,17 @@
 sudo: required
 language: bash
 dist: focal
-services:
-    - docker
-
-env:
-    global:
-        - PROJECT_NAME='libbpf'
-        - AUTHOR_EMAIL="$(git log -1 --pretty=\"%aE\")"
-        - REPO_ROOT="$TRAVIS_BUILD_DIR"
-        - CI_ROOT="$REPO_ROOT/travis-ci"
-        - VMTEST_ROOT="$CI_ROOT/vmtest"
 
 addons:
     apt:
         packages:
-            - qemu-kvm
-            - zstd
-            - binutils-dev
-            - elfutils
-            - libcap-dev
-            - libelf-dev
-            - libdw-dev
-            - flex
-            - bison
-            - bc
-            - libguestfs-tools
             - linux-image-generic
-
-stages:
-    # Run Coverity periodically instead of for each PR for following reasons:
-    # 1) Coverity jobs are heavily rate-limited
-    # 2) Due to security restrictions of encrypted environment variables
-    #    in Travis CI, pull requests made from forks can't access encrypted
-    #    env variables, making Coverity unusable
-    #    See: https://docs.travis-ci.com/user/pull-requests#pull-requests-and-security-restrictions
-    - name: Coverity
-      if: type = cron
+            - libguestfs-tools
+            - qemu-kvm
 
 jobs:
     include:
-        - name: Kernel LATEST + selftests (s390x)
+        - stage: travis-ci-vs-libguestfs
           arch: s390x
           language: bash
-          env: KERNEL=LATEST
-          script:  $CI_ROOT/vmtest/run_vmtest.sh || travis_terminate 1
+          script: ./go

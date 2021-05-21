@@ -14,6 +14,7 @@ sudo chmod +r /boot/vmlinuz*
 # sanity check
 sudo modprobe kvm || true
 ls -l /dev/kvm || true
+sudo mknod /dev/kvm c 10 232 || true
 sudo lsmod
 
 # libguestfs - simplest command
